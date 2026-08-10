@@ -31,21 +31,18 @@ from typing import Any
 
 ENVELOPE_KEY = "stage_event"
 
-# Stages the engine emits.
-CONTRACT_SELECTED = "contract_selected"
-CODE_GENERATED = "code_generated"
-EXECUTING = "executing"
-RESULT = "result"
-CACHE_STORE = "cache_store"
-CACHE_HIT = "cache_hit"
-PROPOSAL = "proposal"
-ERROR = "error"
-DONE = "done"
-
 # Stages this service emits itself, because routing happens on this side of the
 # MCP boundary. They share the run's single seq timeline.
+#
+# The engine's own stages -- contract_selected, code_generated, executing, result,
+# cache_store, cache_hit, proposal, done -- are deliberately not named here. This
+# service never emits them: it forwards them from the notification to the browser
+# untouched, so a copy of their names here would be a second definition of a
+# vocabulary this service does not own, drifting silently the moment the engine
+# adds one.
 PROMPT_RECEIVED = "prompt_received"
 ROUTING = "routing"
+ERROR = "error"
 
 
 @dataclass
@@ -57,7 +54,7 @@ class StageEvent:
     ts: float = field(default_factory=time.time)
 
     @classmethod
-    def from_notification(cls, msg: str, extra: dict[str, Any]) -> "StageEvent | None":
+    def from_notification(cls, msg: str, extra: dict[str, Any]) -> StageEvent | None:
         """Decode one MCP log notification, or None if it is ordinary logging."""
         envelope = (extra or {}).get(ENVELOPE_KEY)
         if not isinstance(envelope, dict) or "run_id" not in envelope:

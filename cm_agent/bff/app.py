@@ -12,7 +12,6 @@ import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import asdict
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -20,17 +19,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from cm_agent import wire as ev
+from cm_agent.bff.mcp_client import McpBridge, Run
+from cm_agent.config import BFF_HOST, BFF_PORT, FRONTEND_ORIGINS
 from cm_agent.graph import route_prompt, use_llm
 from cm_agent.mcp_catalog import parse_tools
-from cm_agent import wire as ev
-from cm_agent.config import BFF_HOST, BFF_PORT, FRONTEND_ORIGINS
-from cm_agent.bff.mcp_client import McpBridge, Run
 
 bridge = McpBridge()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):  # noqa: ARG001 - FastAPI passes it; we do not need it
     await bridge.connect()
     try:
         yield
@@ -163,7 +162,7 @@ async def stream(run_id: str) -> StreamingResponse:
 
             try:
                 await asyncio.wait_for(run.queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield ": keepalive\n\n"
 
     return StreamingResponse(
