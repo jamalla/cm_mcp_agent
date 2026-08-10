@@ -26,7 +26,15 @@ export type RegistryTool = {
 export type Registry = {
   tools: RegistryTool[]
   warnings?: string[]
+  /** Where the contracts came from. */
   source?: { kind: string; path: string; origin: string }
+  /** Which upstream the calls go to. A different axis entirely. */
+  runtime?: { devOffline: boolean }
+}
+
+/** True when the tools came from the artifact the pipeline published. */
+export function isApproved(registry: Registry): boolean {
+  return registry.source?.kind === 'registry-file'
 }
 
 /** Arguments as chips, required ones marked. */
@@ -49,7 +57,8 @@ export function RegistryPanel({
 
   // Only a pinned artifact is the approved set. A contracts directory is whatever
   // is on someone's disk — useful for iterating, and not the same claim.
-  const approved = registry.source?.kind === 'registry-file'
+  const approved = isApproved(registry)
+  const live = registry.runtime ? !registry.runtime.devOffline : undefined
 
   return (
     <section className="registry-panel">
@@ -57,9 +66,6 @@ export function RegistryPanel({
         <div>
           <strong>{registry.tools.length}</strong> tool
           {registry.tools.length === 1 ? '' : 's'} the agent may call
-          <span className={`badge ${approved ? 'badge-approved' : 'badge-dev'}`}>
-            {approved ? 'APPROVED REGISTRY' : 'DEVELOPMENT SOURCE'}
-          </span>
         </div>
         <div className="registry-actions">
           <button onClick={onRefresh}>re-read</button>
@@ -67,14 +73,38 @@ export function RegistryPanel({
         </div>
       </header>
 
-      {registry.source && (
-        <p className="registry-source">
-          {approved
-            ? 'Pinned artifact published by cm_mcp_contracts and merged here after review — every tool below passed the contract gate.'
-            : 'Read straight from a contracts checkout, so this is whatever is on disk — not the approved artifact.'}
-          <code>{registry.source.origin}</code>
-        </p>
-      )}
+      {/* Two independent axes, side by side, because one env var named
+          DEV_OFFLINE and one badge saying "development" is a recipe for reading
+          them as the same thing. Contracts can come from a working tree and
+          still be executed against a live store. */}
+      <dl className="provenance">
+        <div>
+          <dt>contracts</dt>
+          <dd>
+            <span className={`badge ${approved ? 'badge-approved' : 'badge-local'}`}>
+              {approved ? 'APPROVED REGISTRY' : 'LOCAL CHECKOUT'}
+            </span>
+            {approved
+              ? 'the artifact cm_mcp_contracts published, merged here after review'
+              : 'whatever is on disk right now — this is not the approved set'}
+            {registry.source && <code>{registry.source.origin}</code>}
+          </dd>
+        </div>
+        {live !== undefined && (
+          <div>
+            <dt>upstream</dt>
+            <dd>
+              <span className={`badge ${live ? 'badge-live' : 'badge-mock'}`}>
+                {live ? 'LIVE STORE' : 'OFFLINE MOCK'}
+              </span>
+              {live
+                ? 'calls reach the real API and change real data'
+                : 'calls reach the local mock — same envelope, nothing real'}
+              <code>DEV_OFFLINE={live ? '0' : '1'}</code>
+            </dd>
+          </div>
+        )}
+      </dl>
 
       {registry.warnings && registry.warnings.length > 0 && (
         <ul className="registry-warnings">

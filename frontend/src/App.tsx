@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatPane, type ChatMessage } from './components/ChatPane'
 import { PipelinePane } from './components/PipelinePane'
-import { RegistryPanel, type Registry } from './components/RegistryPanel'
+import { RegistryPanel, isApproved, type Registry } from './components/RegistryPanel'
 import { useEventStream } from './useEventStream'
 import type { StageEvent } from './types'
 
@@ -180,9 +180,12 @@ export default function App() {
             // The approved set is worth opening, not just counting: it is the
             // whole surface the agent is allowed to choose from.
             <button className="registry-toggle" onClick={() => setRegistryOpen((o) => !o)}>
-              {registry.tools.length} approved tool
-              {registry.tools.length === 1 ? '' : 's'}
-              {registry.source?.kind !== 'registry-file' && <em> (dev source)</em>}
+              {registry.tools.length} tool{registry.tools.length === 1 ? '' : 's'}
+              {/* Says which axis it is talking about: where the contracts came
+                  from, not which upstream they call. */}
+              <em className={isApproved(registry) ? 'ok' : 'warn'}>
+                {isApproved(registry) ? 'approved registry' : 'local checkout'}
+              </em>
             </button>
           )}
           <span className={health?.mcpConnected ? 'ok' : 'bad'}>
