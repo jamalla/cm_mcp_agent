@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatPane, type ChatMessage } from './components/ChatPane'
 import { PipelinePane } from './components/PipelinePane'
+import { RegistryPanel, type Registry } from './components/RegistryPanel'
 import { useEventStream } from './useEventStream'
 import type { StageEvent } from './types'
 
@@ -17,38 +18,46 @@ function suggestionFrom(hint: string): string {
   return (example ? example[1] : hint).replace(/\s+/g, ' ').trim()
 }
 
-type RegistryTool = { name: string; whenToUse?: string[] }
-
 let messageCounter = 0
 const nextId = () => `m${++messageCounter}`
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [health, setHealth] = useState<{ usingLlm: boolean; mcpConnected: boolean } | null>(null)
-  const [toolCount, setToolCount] = useState<number | null>(null)
+  const [registry, setRegistry] = useState<Registry | null>(null)
+  const [registryOpen, setRegistryOpen] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [lastDuration, setLastDuration] = useState<number | undefined>()
   const { events, running, start, append } = useEventStream()
   const previousDuration = useRef<number | undefined>()
 
+  const loadRegistry = useCallback(async () => {
+    try {
+      const data: Registry = await (await fetch('/api/registry')).json()
+      setRegistry(data)
+      // One prompt per contract, so every suggestion has a tool behind it.
+      setSuggestions(
+        (data.tools ?? [])
+          .map((tool) => tool.whenToUse?.[0])
+          .filter((hint): hint is string => Boolean(hint))
+          .map(suggestionFrom)
+          .slice(0, 4),
+      )
+    } catch {
+      setRegistry(null)
+    }
+  }, [])
+
+  const refreshRegistry = useCallback(async () => {
+    // Re-reads the engine's source, then re-reads the catalog it produced.
+    await fetch('/api/registry/refresh', { method: 'POST' }).catch(() => undefined)
+    await loadRegistry()
+  }, [loadRegistry])
+
   useEffect(() => {
     fetch('/healthz').then((r) => r.json()).then(setHealth).catch(() => setHealth(null))
-    fetch('/api/registry')
-      .then((r) => r.json())
-      .then((data) => {
-        const tools: RegistryTool[] = data?.tools ?? []
-        setToolCount(tools.length || null)
-        // One prompt per contract, so every suggestion has a tool behind it.
-        setSuggestions(
-          tools
-            .map((tool) => tool.whenToUse?.[0])
-            .filter((hint): hint is string => Boolean(hint))
-            .map(suggestionFrom)
-            .slice(0, 4),
-        )
-      })
-      .catch(() => setToolCount(null))
-  }, [])
+    void loadRegistry()
+  }, [loadRegistry])
 
   const consume = useCallback((event: StageEvent) => {
     const d = event.data ?? {}
@@ -167,15 +176,31 @@ export default function App() {
           <span className="sub">code-mode execution</span>
         </div>
         <div className="status">
-          {toolCount !== null && <span>{toolCount} contracts in registry</span>}
+          {registry && (
+            // The approved set is worth opening, not just counting: it is the
+            // whole surface the agent is allowed to choose from.
+            <button className="registry-toggle" onClick={() => setRegistryOpen((o) => !o)}>
+              {registry.tools.length} approved tool
+              {registry.tools.length === 1 ? '' : 's'}
+              {registry.source?.kind !== 'registry-file' && <em> (dev source)</em>}
+            </button>
+          )}
           <span className={health?.mcpConnected ? 'ok' : 'bad'}>
             {health?.mcpConnected ? 'MCP connected' : 'MCP down'}
           </span>
           <span className="router-mode">
-            {health?.usingLlm ? 'Claude router' : 'offline router'}
+            {health?.usingLlm ? 'OpenAI router' : 'offline router'}
           </span>
         </div>
       </header>
+
+      {registryOpen && registry && (
+        <RegistryPanel
+          registry={registry}
+          onClose={() => setRegistryOpen(false)}
+          onRefresh={refreshRegistry}
+        />
+      )}
 
       <main className="panes">
         <ChatPane

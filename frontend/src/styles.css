@@ -232,3 +232,80 @@ body {
 @media (max-width: 900px) {
   .panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
 }
+
+/* ---------- registry panel ---------- */
+/* The approved tool list. Opens under the top bar rather than in a modal: the
+   audience should be able to read it while the panes stay where they were. */
+
+.registry-toggle {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: 12px;
+  border-bottom: 1px dotted var(--dim);
+}
+.registry-toggle:hover { color: var(--text); border-bottom-color: var(--accent); }
+.registry-toggle em { color: var(--amber); font-style: normal; }
+
+.registry-panel {
+  border-bottom: 1px solid var(--line); background: var(--panel);
+  padding: 14px 20px; max-height: 46vh; overflow-y: auto;
+}
+.registry-panel > header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; font-size: 13px; color: var(--muted);
+}
+.registry-panel > header strong { color: var(--text); }
+.registry-actions { display: flex; gap: 8px; }
+.registry-actions button {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.registry-actions button:hover { border-color: var(--accent); color: var(--text); }
+
+.badge-approved { color: var(--green); border-color: #245c40; background: #14301f; }
+.badge-dev { color: var(--amber); border-color: #5c4522; background: #2e2314; }
+.badge-read { color: var(--accent); border-color: #2b4a7a; background: #11203a; }
+.badge-write { color: var(--amber); border-color: #5c4522; background: #2e2314; }
+.badge-destructive { color: var(--red); border-color: #6b2b2b; background: #331616; }
+
+.registry-source {
+  margin: 8px 0 0; font-size: 12px; color: var(--dim); max-width: 90ch;
+}
+.registry-source code {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 4px; padding: 1px 6px; margin-left: 8px;
+}
+
+.registry-warnings {
+  margin: 10px 0 0; padding: 8px 12px 8px 28px; font-size: 12px;
+  color: var(--amber); background: #2e2314; border: 1px solid #5c4522; border-radius: 8px;
+}
+
+.registry-tools { list-style: none; margin: 12px 0 0; padding: 0; }
+.registry-tools > li { border-top: 1px solid var(--line); }
+
+.registry-tool {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  background: none; border: none; cursor: pointer;
+  padding: 9px 2px; color: var(--text); font: inherit; text-align: left;
+}
+.registry-tool:hover { background: var(--panel-2); }
+.registry-name { font-family: var(--mono); font-size: 13px; }
+.registry-version { color: var(--dim); font-size: 11px; margin-right: auto; }
+
+.registry-detail { padding: 0 2px 14px 2px; font-size: 13px; color: var(--muted); }
+.registry-detail p { margin: 0 0 10px; color: var(--text); }
+.registry-detail h4 {
+  margin: 12px 0 4px; font-size: 11px; letter-spacing: .8px;
+  text-transform: uppercase; color: var(--dim); font-weight: 600;
+}
+.registry-detail ul { margin: 0; padding-left: 20px; }
+.registry-detail ul.negative { color: var(--dim); }
+
+.registry-args { display: flex; flex-wrap: wrap; gap: 6px; }
+.registry-args code {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 2px 9px;
+}
+.registry-args code.required { color: var(--text); border-color: #2b4a7a; }
