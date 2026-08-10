@@ -1,0 +1,9 @@
+# Replace @owner with a real handle or team before enabling branch protection.
+
+* @owner
+
+# This repo's half of the stage-event protocol with cm_mcp_engine. A change
+# here must land alongside the matching change there.
+/cm_agent/wire.py               @owner
+/tests/test_wire_contract.py    @owner
+/.github/**                     @owner

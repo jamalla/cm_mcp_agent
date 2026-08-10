@@ -1,0 +1,238 @@
+{
+  "_comment": "Pinned snapshot of the MCP tool surface cm_mcp_engine publishes. Regenerate with scripts/refresh_catalog_fixture.py against a running engine. Routing quality is judged against this, so it changes deliberately, not incidentally.",
+  "tools": [
+    {
+      "name": "cancel_order",
+      "title": "Cancel Order",
+      "description": "Cancels an order that has not yet shipped. Returns a proposal first and mutates nothing until a human approves it.",
+      "whenToUse": [
+        "The user explicitly asks to cancel or stop an order.",
+        "A concrete order ID is available and the order has not shipped."
+      ],
+      "whenNotToUse": [
+        "The user only wants to know the status -- use get_order_status instead.",
+        "The user is asking a hypothetical question about cancellation policy."
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "Merchant order ID."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the order is being cancelled."
+          }
+        },
+        "required": [
+          "orderId"
+        ],
+        "additionalProperties": false
+      },
+      "validationRules": [
+        {
+          "field": "orderId",
+          "match": "^ORD-[0-9]{6,}$",
+          "message": "orderId must look like ORD-123456"
+        }
+      ],
+      "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false,
+        "openWorld": true
+      },
+      "responseUi": {
+        "display": "card",
+        "title": "Order {orderId}",
+        "primary": "{status}",
+        "secondary": "Cancelled at {cancelledAt}"
+      },
+      "package": null
+    },
+    {
+      "name": "estimate_delivery_window",
+      "title": "Estimate Delivery Window",
+      "description": "Estimates a delivery window in business days from a destination zone and shipping speed, with no external API call.",
+      "whenToUse": [
+        "The user asks how long delivery will take or when a package should arrive.",
+        "The user has not shipped yet and wants an estimate before ordering."
+      ],
+      "whenNotToUse": [
+        "The user is asking about a specific existing order -- use get_order_status instead.",
+        "The user wants a guaranteed delivery date rather than an estimate."
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Destination zone: domestic, regional, or international."
+          },
+          "speed": {
+            "type": "string",
+            "description": "Shipping speed: standard, express, or overnight."
+          }
+        },
+        "required": [
+          "zone"
+        ],
+        "additionalProperties": false
+      },
+      "validationRules": [
+        {
+          "field": "zone",
+          "match": "^(domestic|regional|international)$",
+          "message": "zone must be one of: domestic, regional, international"
+        }
+      ],
+      "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true,
+        "openWorld": false
+      },
+      "responseUi": {
+        "display": "card",
+        "title": "Delivery estimate ({zone})",
+        "primary": "{summary}",
+        "secondary": "Speed: {speed}"
+      },
+      "package": null
+    },
+    {
+      "name": "get_order_status",
+      "title": "Get Order Status",
+      "description": "Returns the current fulfillment status of a single order by its ID.",
+      "whenToUse": [
+        "The user asks where an order is or whether it shipped.",
+        "A concrete order ID is available."
+      ],
+      "whenNotToUse": [
+        "No order ID is available -- search first.",
+        "The user wants to modify or cancel the order (this tool is read-only)."
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "Merchant order ID."
+          }
+        },
+        "required": [
+          "orderId"
+        ],
+        "additionalProperties": false
+      },
+      "validationRules": [
+        {
+          "field": "orderId",
+          "match": "^ORD-[0-9]{6,}$",
+          "message": "orderId must look like ORD-123456"
+        }
+      ],
+      "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true,
+        "openWorld": true
+      },
+      "responseUi": {
+        "display": "card",
+        "title": "Order {orderId}",
+        "primary": "{status}",
+        "secondary": "ETA: {eta}"
+      },
+      "package": null
+    },
+    {
+      "name": "lookup_shipping_zone",
+      "title": "Look Up Shipping Zone",
+      "description": "Maps a two-letter country code to the shipping zone used for delivery estimates.",
+      "whenToUse": [
+        "A delivery estimate is needed but only the country is known.",
+        "The user asks which shipping zone a country falls into."
+      ],
+      "whenNotToUse": [
+        "The country is already expressed as a zone -- pass it straight through."
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "countryCode": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code."
+          }
+        },
+        "required": [
+          "countryCode"
+        ],
+        "additionalProperties": false
+      },
+      "validationRules": [
+        {
+          "field": "countryCode",
+          "match": "^[A-Za-z]{2}$",
+          "message": "countryCode must be a two-letter ISO country code, e.g. SA"
+        }
+      ],
+      "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true,
+        "openWorld": false
+      },
+      "responseUi": {
+        "display": "card",
+        "title": "Zone for {countryCode}",
+        "primary": "{zone}"
+      },
+      "package": "partner_support"
+    },
+    {
+      "name": "check_return_window",
+      "title": "Check Return Window",
+      "description": "Reports whether an order is still inside its return window given how many days ago it was delivered.",
+      "whenToUse": [
+        "The user asks whether they can still return or exchange an item.",
+        "The number of days since delivery is known or can be inferred."
+      ],
+      "whenNotToUse": [
+        "The order has not been delivered yet -- check the order status first."
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "daysSinceDelivery": {
+            "type": "integer",
+            "description": "Whole days since the order was delivered."
+          },
+          "category": {
+            "type": "string",
+            "description": "Product category: standard, electronics, or final_sale."
+          }
+        },
+        "required": [
+          "daysSinceDelivery"
+        ],
+        "additionalProperties": false
+      },
+      "validationRules": [],
+      "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true,
+        "openWorld": false
+      },
+      "responseUi": {
+        "display": "card",
+        "title": "Return eligibility",
+        "primary": "{summary}",
+        "secondary": "Window: {windowDays} days"
+      },
+      "package": "partner_support"
+    }
+  ]
+}
