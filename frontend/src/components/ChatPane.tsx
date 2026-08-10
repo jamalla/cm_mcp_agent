@@ -14,7 +14,7 @@ export interface ChatMessage {
   resolved?: 'approved' | 'rejected'
 }
 
-/** Fill a contract's `ui` hint template: "Order {orderId}" -> "Order ORD-123456". */
+/** Fill a contract's `ui` hint template: "Category {name}" -> "Category Shoes". */
 function interpolate(template: string | undefined, output: Record<string, any>): string {
   if (!template) return ''
   return template.replace(/\{(\w+)\}/g, (_, key) => {
@@ -83,7 +83,7 @@ export function ChatPane({
       </header>
 
       <div className="messages">
-        {messages.length === 0 && (
+        {messages.length === 0 && suggestions.length > 0 && (
           <div className="suggestions">
             <p className="empty">Try one of these:</p>
             {suggestions.map((s) => (
@@ -149,7 +149,7 @@ export function ChatPane({
       <form className="composer" onSubmit={submit}>
         <input
           ref={inputRef}
-          placeholder={busy ? 'working…' : 'Ask about an order…'}
+          placeholder={busy ? 'working…' : 'Ask about the store…'}
           disabled={busy}
           autoFocus
         />

@@ -1,4 +1,4 @@
-"""Deterministic routing for when no Anthropic API key is present.
+"""Deterministic routing for when no LLM API key is present.
 
 Not a stub, and not optional. Acceptance criterion 5 says the demo runs offline;
 the moment the agent is involved, that is only true if routing works without an

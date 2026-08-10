@@ -4,12 +4,20 @@ import { PipelinePane } from './components/PipelinePane'
 import { useEventStream } from './useEventStream'
 import type { StageEvent } from './types'
 
-const SUGGESTIONS = [
-  'where is order ORD-123456?',
-  'how long does delivery take to a regional address by express?',
-  'cancel order ORD-777888',
-  'which shipping zone is SA in?',
-]
+/** A clickable prompt, taken from a contract's own routing hints.
+ *
+ * Authors write `whenToUse` entries like "The merchant wants an overview of
+ * their category tree, e.g. 'what categories do I have?'" -- the quoted example
+ * IS the prompt. Deriving the suggestions from the live registry means they
+ * follow whatever was last merged upstream, instead of a hardcoded list that
+ * silently starts offering prompts no tool can serve.
+ */
+function suggestionFrom(hint: string): string {
+  const example = hint.match(/e\.g\.\s*['"‘“]([^'"’”]+)['"’”]/i)
+  return (example ? example[1] : hint).replace(/\s+/g, ' ').trim()
+}
+
+type RegistryTool = { name: string; whenToUse?: string[] }
 
 let messageCounter = 0
 const nextId = () => `m${++messageCounter}`
@@ -18,6 +26,7 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [health, setHealth] = useState<{ usingLlm: boolean; mcpConnected: boolean } | null>(null)
   const [toolCount, setToolCount] = useState<number | null>(null)
+  const [suggestions, setSuggestions] = useState<string[]>([])
   const [lastDuration, setLastDuration] = useState<number | undefined>()
   const { events, running, start, append } = useEventStream()
   const previousDuration = useRef<number | undefined>()
@@ -26,7 +35,18 @@ export default function App() {
     fetch('/healthz').then((r) => r.json()).then(setHealth).catch(() => setHealth(null))
     fetch('/api/registry')
       .then((r) => r.json())
-      .then((data) => setToolCount(data?.tools?.length ?? null))
+      .then((data) => {
+        const tools: RegistryTool[] = data?.tools ?? []
+        setToolCount(tools.length || null)
+        // One prompt per contract, so every suggestion has a tool behind it.
+        setSuggestions(
+          tools
+            .map((tool) => tool.whenToUse?.[0])
+            .filter((hint): hint is string => Boolean(hint))
+            .map(suggestionFrom)
+            .slice(0, 4),
+        )
+      })
       .catch(() => setToolCount(null))
   }, [])
 
@@ -164,7 +184,7 @@ export default function App() {
           onSend={send}
           onApprove={approve}
           onClearCache={clearCaches}
-          suggestions={SUGGESTIONS}
+          suggestions={suggestions}
         />
         <PipelinePane
           events={events}

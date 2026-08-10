@@ -27,8 +27,8 @@ This repo owns the demo, so its launcher will start a sibling engine checkout fo
 than knowing how to run it. With no sibling present (`-AgentOnly`, or a deployment) it starts the
 BFF and UI alone and talks to whatever `CM_MCP_URL` points at.
 
-No API keys, no internet. Without `ANTHROPIC_API_KEY` the deterministic offline router runs and the
-UI looks identical; setting a key upgrades routing to Claude and changes nothing else.
+No API keys, no internet. Without `OPENAI_API_KEY` the deterministic offline router runs and the
+UI looks identical; setting a key upgrades routing to an OpenAI model and changes nothing else.
 
 ## The demo
 

@@ -23,7 +23,9 @@ from langgraph.graph import END, StateGraph
 from cm_agent import fallback_router
 from cm_agent.mcp_catalog import CatalogTool
 
-MODEL = "claude-opus-5"
+# Override with CM_ROUTER_MODEL when a better fit ships; a bad model id degrades
+# to the deterministic router rather than breaking the demo.
+MODEL = os.environ.get("CM_ROUTER_MODEL", "gpt-5.1")
 
 ROUTER_SYSTEM = """You route a user's prompt to exactly one tool from a registry.
 
@@ -88,7 +90,7 @@ class AgentState(TypedDict, total=False):
 
 
 def use_llm() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(os.environ.get("OPENAI_API_KEY"))
 
 
 # -- nodes ---------------------------------------------------------------
@@ -102,11 +104,11 @@ def load_catalog_node(state: AgentState) -> AgentState:
     return state
 
 
-def _route_with_claude(state: AgentState) -> AgentState:
-    import anthropic
+def _route_with_llm(state: AgentState) -> AgentState:
+    from openai import OpenAI
 
     catalog: list[CatalogTool] = state["catalog"]
-    client = anthropic.Anthropic()
+    client = OpenAI()
 
     tools_block = "\n\n".join(tool.routing_text() for tool in catalog)
     feedback = ""
@@ -117,36 +119,38 @@ def _route_with_claude(state: AgentState) -> AgentState:
             + "\nFix the arguments, or choose a different tool."
         )
 
-    response = client.messages.create(
+    # strict json_schema output: the model must return exactly the routing shape,
+    # so there is no free-text parsing to get wrong on stage.
+    response = client.chat.completions.create(
         model=MODEL,
-        max_tokens=16000,
-        system=ROUTER_SYSTEM,
-        output_config={
-            "effort": "low",
-            "format": {"type": "json_schema", "schema": ROUTING_SCHEMA},
-        },
         messages=[
+            {"role": "system", "content": ROUTER_SYSTEM},
             {
                 "role": "user",
                 "content": (
                     f"Registry:\n\n{tools_block}\n\n"
                     f"User prompt: {state['prompt']}{feedback}"
                 ),
-            }
+            },
         ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "routing_decision", "strict": True, "schema": ROUTING_SCHEMA},
+        },
     )
 
-    if response.stop_reason == "refusal":
-        return {**state, "error": "the router declined to route this prompt", "source": "claude"}
+    message = response.choices[0].message
+    if getattr(message, "refusal", None):
+        return {**state, "error": "the router declined to route this prompt", "source": "openai"}
 
-    payload = json.loads(next(b.text for b in response.content if b.type == "text"))
+    payload = json.loads(message.content)
     return {
         **state,
         "contract_name": payload.get("contractName"),
         "args": payload.get("args") or {},
         "rationale": payload.get("rationale", ""),
         "candidates": payload.get("candidates", []),
-        "source": "claude",
+        "source": "openai",
     }
 
 
@@ -171,11 +175,11 @@ def route_node(state: AgentState) -> AgentState:
     if not use_llm():
         return _route_with_fallback(state)
     try:
-        return _route_with_claude(state)
+        return _route_with_llm(state)
     except Exception as exc:  # noqa: BLE001 - routing must not die on an API hiccup
         routed = _route_with_fallback(state)
         routed["rationale"] = (
-            f"{routed['rationale']} (Claude router unavailable: {type(exc).__name__}.)"
+            f"{routed['rationale']} (LLM router unavailable: {type(exc).__name__}.)"
         )
         return routed
 
