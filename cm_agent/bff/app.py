@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
@@ -22,16 +23,41 @@ from pydantic import BaseModel
 
 from cm_agent import wire as ev
 from cm_agent.bff.mcp_client import McpBridge, Run
-from cm_agent.config import BFF_HOST, BFF_PORT, FRONTEND_ORIGINS, REPO_ROOT
+from cm_agent.config import BFF_HOST, BFF_PORT, FRONTEND_ORIGINS, MCP_URL, REPO_ROOT
 from cm_agent.graph import route_prompt, use_llm
 from cm_agent.mcp_catalog import parse_tools
+
+log = logging.getLogger(__name__)
 
 bridge = McpBridge()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001 - FastAPI passes it; we do not need it
-    await bridge.connect()
+    """Warm the MCP session if the engine answers, and start either way.
+
+    The engine is routinely unreachable at exactly this moment: it sleeps on
+    Render's free plan, and every registry merge redeploys it, so a boot that
+    races a cold start gets a 502 from the platform's router rather than from
+    the engine. Letting that propagate kills the process before the app can
+    serve anything -- including /healthz, whose entire job is to report this
+    condition. The health check cannot say "degraded" from a container that
+    exited.
+
+    Nothing downstream needs this to have succeeded. Every call goes through
+    `_ensure_connected`, which probes the session and reopens it, because the
+    engine restarting is normal operation here. So this is a warm start, not a
+    precondition.
+    """
+    try:
+        await bridge.connect()
+    except Exception:  # noqa: BLE001 - any failure to reach the engine is survivable
+        log.warning(
+            "MCP engine unreachable at %s during startup; serving degraded until it answers",
+            MCP_URL,
+            exc_info=True,
+        )
+
     try:
         yield
     finally:
