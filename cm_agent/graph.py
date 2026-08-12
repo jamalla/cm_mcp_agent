@@ -34,19 +34,20 @@ the tool's author. Those hints outrank your own intuition about what the tool
 name suggests -- read them and follow them.
 
 Rules:
+- `contractName` is the tool whose OUTPUT ANSWERS THE USER -- the destination,
+  never a step on the way to it. "Show me shipped orders" is answered by the
+  orders tool; naming a status lookup hands back a list of statuses to someone
+  who asked for orders.
 - Choose exactly one tool, or null if no tool genuinely fits. Declining is a
   valid answer; a wrong tool call is worse than none.
 - Fill arguments only from what the prompt actually says. Never invent an ID, a
   date, or a quantity the user did not give you.
 - If a required argument is missing from the prompt, still name the tool but
   leave that argument out, and say so in your rationale.
-- An argument whose description says its values come from another tool CANNOT be
-  filled from the prompt's wording. The user says "shipped"; the argument wants
-  an id that is specific to this merchant's store. Put that tool's name in
-  `needsLookup`, leave the argument out, and you will be asked again with the
-  lookup's results. Guessing the id is the failure this field exists to prevent
-  -- a wrong id returns zero rows and looks like an empty store.
-- Once lookup results are given to you, read the id straight out of them.
+- Give an argument the words the user actually used. Where a value has to become
+  something else before it reaches the API, the tool does that itself -- pass
+  "shipped", not an id you inferred. Match the TYPE the argument declares: a
+  value for an "array of string" goes in a list, even when there is one of them.
 - Your rationale is shown to an audience. One or two sentences on why this tool
   and not the runner-up."""
 
@@ -71,13 +72,6 @@ ROUTING_SCHEMA = {
                 'string, e.g. {"page": 2}. Use {} when the prompt states none.'
             ),
         },
-        "needsLookup": {
-            "type": ["string", "null"],
-            "description": (
-                "Name of a tool whose results are needed before an argument can be "
-                "filled, or null. Use it instead of guessing a store-specific id."
-            ),
-        },
         "rationale": {"type": "string", "description": "One or two sentences."},
         "candidates": {
             "type": "array",
@@ -95,7 +89,7 @@ ROUTING_SCHEMA = {
     },
     # Strict mode requires every property to be listed here, optionality being
     # expressed by a nullable type rather than by omission.
-    "required": ["contractName", "args", "needsLookup", "rationale", "candidates"],
+    "required": ["contractName", "args", "rationale", "candidates"],
     "additionalProperties": False,
 }
 
@@ -131,12 +125,6 @@ class AgentState(TypedDict, total=False):
     repair_attempted: bool
     source: str
     error: str | None
-    # Set when an argument cannot be filled without another tool's output. The
-    # BFF runs that tool and calls back in with its rows; this graph still
-    # executes nothing.
-    needs_lookup: str | None
-    lookup_results: Any
-    lookup_source: str | None
 
 
 def use_llm() -> bool:
@@ -154,24 +142,6 @@ def load_catalog_node(state: AgentState) -> AgentState:
     return state
 
 
-def _valid_lookup(
-    requested: Any, chosen: str | None, catalog: list[CatalogTool]
-) -> str | None:
-    """Honour a lookup request only when the contract actually declares it.
-
-    A router that could name any tool as a precondition could send the agent to
-    a write, or into a loop between two tools each asking for the other. The
-    contract's own `dependencies` array is the allowlist, so the worst a
-    confused router can do is ask for a lookup its contract already sanctions.
-    """
-    if not requested or not chosen:
-        return None
-    tool = next((t for t in catalog if t.name == chosen), None)
-    if tool is None or requested not in tool.dependency_names():
-        return None
-    return requested
-
-
 def _route_with_llm(state: AgentState) -> AgentState:
     from openai import OpenAI
 
@@ -185,16 +155,6 @@ def _route_with_llm(state: AgentState) -> AgentState:
             "\n\nYour previous attempt was rejected:\n"
             + "\n".join(f"- {e}" for e in errors)
             + "\nFix the arguments, or choose a different tool."
-        )
-
-    # The second pass: the lookup the previous pass asked for has been run, and
-    # its rows are handed back so the id can be READ rather than guessed.
-    if results := state.get("lookup_results"):
-        feedback += (
-            f"\n\nResults from {state.get('lookup_source') or 'the lookup'} "
-            f"(use these to fill the argument, do not guess):\n"
-            + json.dumps(results, ensure_ascii=False)[:6000]
-            + "\n\nDo not ask for another lookup."
         )
 
     # strict json_schema output: the model must return exactly the routing shape,
@@ -226,7 +186,6 @@ def _route_with_llm(state: AgentState) -> AgentState:
         **state,
         "contract_name": payload.get("contractName"),
         "args": _decode_args(payload.get("args")),
-        "needs_lookup": _valid_lookup(payload.get("needsLookup"), payload.get("contractName"), catalog),
         "rationale": payload.get("rationale", ""),
         "candidates": payload.get("candidates", []),
         "source": "openai",
@@ -234,18 +193,11 @@ def _route_with_llm(state: AgentState) -> AgentState:
 
 
 def _route_with_fallback(state: AgentState) -> AgentState:
-    routing = fallback_router.route(
-        state["prompt"],
-        state["catalog"],
-        lookup_results=state.get("lookup_results"),
-    )
+    routing = fallback_router.route(state["prompt"], state["catalog"])
     return {
         **state,
         "contract_name": routing.contract_name,
         "args": routing.args,
-        "needs_lookup": _valid_lookup(
-            routing.needs_lookup, routing.contract_name, state["catalog"]
-        ),
         "rationale": routing.rationale,
         "candidates": [
             {"name": c.name, "why": c.why, "score": c.score} for c in routing.candidates
@@ -399,27 +351,9 @@ def build_graph():
 _GRAPH = None
 
 
-def route_prompt(
-    prompt: str,
-    catalog: list[CatalogTool],
-    lookup_results: Any = None,
-    lookup_source: str | None = None,
-) -> AgentState:
-    """Run the graph. Returns the decision; executes nothing.
-
-    `lookup_results` is the second pass: the caller ran the tool a first pass
-    asked for and hands back its rows. This graph still makes no calls -- the
-    BFF owns the MCP boundary, and routing that executed its own lookups would
-    put a network call inside the brain.
-    """
+def route_prompt(prompt: str, catalog: list[CatalogTool]) -> AgentState:
+    """Run the graph. Returns the decision; executes nothing."""
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_graph()
-    return _GRAPH.invoke(
-        {
-            "prompt": prompt,
-            "catalog": catalog,
-            "lookup_results": lookup_results,
-            "lookup_source": lookup_source,
-        }
-    )
+    return _GRAPH.invoke({"prompt": prompt, "catalog": catalog})

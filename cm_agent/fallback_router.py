@@ -71,77 +71,6 @@ class Routing:
     candidates: list[Candidate]
     missing_args: list[str]
     source: str = "fallback"
-    needs_lookup: str | None = None
-
-
-# -- lookups --------------------------------------------------------------
-
-
-def _dependency_for_argument(tool: CatalogTool, argument: str) -> str | None:
-    """The declared dependency an argument's own description points at.
-
-    Contracts already say this in prose -- list_orders' status argument reads
-    "ids ... come from list_order_statuses" -- and the dependency array names
-    the same tool. Requiring BOTH is what keeps this from firing on a passing
-    mention: the description has to name a tool the contract formally depends on.
-    """
-    description = tool.arg_description(argument).lower()
-    for name in tool.dependency_names():
-        if name.lower() in description:
-            return name
-    return None
-
-
-def _rows(payload: Any) -> list[dict[str, Any]]:
-    """The records out of an engine result envelope, whatever shape it arrived in."""
-    if isinstance(payload, dict):
-        payload = payload.get("items", payload.get("data", payload))
-    if isinstance(payload, dict):
-        return [payload]
-    return [row for row in payload if isinstance(row, dict)] if isinstance(payload, list) else []
-
-
-def _resolve_from_rows(prompt: str, rows: list[dict[str, Any]]) -> list[int]:
-    """Ids of the rows the prompt actually names.
-
-    Matches the prompt's words against each row's own string fields -- slug,
-    name, a translation -- rather than against a vocabulary hard-coded here.
-    "shipped" finds the row whose slug is "shipped" and returns ITS id, which is
-    the store's own, and is the only way this works for a merchant who renamed
-    their states or invented new ones.
-
-    Deliberately narrow: whole-token equality, not substring. "delivered" must
-    not also match "delivering", or a request for one state quietly widens into
-    two.
-    """
-    wanted = {t.lower() for t in _raw_tokens(prompt)}
-    found: list[int] = []
-
-    for row in rows:
-        row_id = row.get("id")
-        if not isinstance(row_id, int):
-            continue
-        if any(
-            token in wanted
-            for value in _string_values(row)
-            for token in _raw_tokens(value.lower())
-        ):
-            found.append(row_id)
-
-    return found
-
-
-def _string_values(row: Any, depth: int = 0) -> list[str]:
-    """Every string in a record, including nested ones (translations, parents)."""
-    if depth > 3:
-        return []
-    if isinstance(row, str):
-        return [row]
-    if isinstance(row, dict):
-        return [v for value in row.values() for v in _string_values(value, depth + 1)]
-    if isinstance(row, list):
-        return [v for value in row for v in _string_values(value, depth + 1)]
-    return []
 
 
 # -- argument extraction --------------------------------------------------
@@ -308,11 +237,7 @@ def score_tool(
     return score, "; ".join(reasons) or "no overlap with this contract's hints"
 
 
-def route(
-    prompt: str,
-    catalog: list[CatalogTool],
-    lookup_results: Any = None,
-) -> Routing:
+def route(prompt: str, catalog: list[CatalogTool]) -> Routing:
     weights = _idf(catalog)
 
     scored = [
@@ -339,54 +264,12 @@ def route(
 
     tool = next(t for t in catalog if t.name == best.name)
     args = extract_args(prompt, tool)
-
-    # An argument this router cannot fill from the prompt because its values are
-    # store-specific: the prompt says "shipped", the argument wants an id only
-    # the declared lookup knows. Ask for that lookup on the first pass; on the
-    # second, its rows are in hand and the id is read out of them.
-    # Only when the prompt says something this tool's own vocabulary does not
-    # explain. "show me my latest orders" is answered entirely by words
-    # list_orders already uses, so there is nothing to resolve and no reason to
-    # pay for a second call. "list recent shipped orders" leaves "shipped"
-    # unaccounted for -- and an unexplained content word next to an argument
-    # whose values come from elsewhere is exactly what a lookup is for.
-    unexplained = _tokens(prompt) - _tool_vocabulary(tool)
-
-    needs_lookup: str | None = None
-    lookup_note = ""
-    for argument in tool.arg_names():
-        if argument in args or not unexplained:
-            continue
-        dependency = _dependency_for_argument(tool, argument)
-        if dependency is None:
-            continue
-        if lookup_results is None:
-            needs_lookup = dependency
-            lookup_note = (
-                f" Cannot fill {argument} from the prompt -- its values come from "
-                f"{dependency}, so that runs first."
-            )
-            break
-        if resolved := _resolve_from_rows(prompt, _rows(lookup_results)):
-            args[argument] = resolved
-            lookup_note = (
-                f" Resolved {argument}={resolved} from {dependency} "
-                f"rather than guessing."
-            )
-        else:
-            lookup_note = (
-                f" {dependency} returned nothing matching this prompt, so "
-                f"{argument} is left unset rather than guessed."
-            )
-        break
-
     missing = [a for a in tool.required_args if a not in args]
 
     runner_up = scored[1] if len(scored) > 1 else None
     rationale = f"Chose {tool.name}: {best.why}."
     if runner_up:
         rationale += f" Ranked above {runner_up.name} ({best.score} vs {runner_up.score})."
-    rationale += lookup_note
     if missing:
         rationale += f" Missing required argument(s): {', '.join(missing)}."
 
@@ -396,5 +279,4 @@ def route(
         rationale=rationale,
         candidates=scored[:4],
         missing_args=missing,
-        needs_lookup=needs_lookup,
     )

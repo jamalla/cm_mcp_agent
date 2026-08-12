@@ -101,23 +101,6 @@ async def _drive_run(run: Run) -> None:
         catalog = parse_tools(await bridge.list_tools())
         decision = route_prompt(run.prompt, catalog)
 
-        # One prompt can need two calls. "list recent shipped orders" names a
-        # state in words, but the filter takes an id that is this merchant's
-        # own -- so the lookup the contract declares runs first, and routing is
-        # asked again with its rows. Executed here rather than in the graph
-        # because this is the only side of the boundary that may touch MCP.
-        #
-        # Exactly one hop: the second pass is told not to ask again, and the
-        # result is used regardless. A router that could keep requesting lookups
-        # could keep the run alive forever.
-        if lookup := decision.get("needs_lookup"):
-            bridge.emit_local(run, ev.ROUTING, chosen=lookup, rationale=(
-                f"{decision.get('rationale', '')} Running {lookup} first."
-            ), candidates=[], args={}, source=decision.get("source", "fallback"),
-                usingLlm=use_llm())
-            rows = await bridge.call_tool(lookup, {}, run_id=run.run_id)
-            decision = route_prompt(run.prompt, catalog, lookup_results=rows, lookup_source=lookup)
-
         bridge.emit_local(
             run,
             ev.ROUTING,

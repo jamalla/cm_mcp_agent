@@ -35,9 +35,6 @@ class CatalogTool:
     def arg_names(self) -> list[str]:
         return [a for a in self.input_schema.get("properties", {}) if a != "run_id"]
 
-    def dependency_names(self) -> list[str]:
-        return [d["contract"] for d in self.dependencies if d.get("contract")]
-
     def arg_description(self, name: str) -> str:
         spec = self.input_schema.get("properties", {}).get(name) or {}
         return str(spec.get("description", ""))
