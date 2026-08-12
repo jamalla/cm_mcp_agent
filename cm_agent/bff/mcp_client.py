@@ -49,8 +49,17 @@ class McpBridge:
 
     async def connect(self) -> None:
         transport = StreamableHttpTransport(url=self._url)
-        self._client = Client(transport, log_handler=self._log_handler, timeout=120)
-        await self._client.__aenter__()
+        client = Client(transport, log_handler=self._log_handler, timeout=120)
+        try:
+            await client.__aenter__()
+        except Exception:
+            # Leave no half-open client behind. Assigning before entering would
+            # make `connected` read True-ish for a session that never opened, and
+            # the next close() would __aexit__ a context that was never entered --
+            # so a first failure would poison every reconnect after it.
+            self._client = None
+            raise
+        self._client = client
 
     async def close(self) -> None:
         if self._client is not None:
