@@ -34,12 +34,20 @@ the tool's author. Those hints outrank your own intuition about what the tool
 name suggests -- read them and follow them.
 
 Rules:
+- `contractName` is the tool whose OUTPUT ANSWERS THE USER -- the destination,
+  never a step on the way to it. "Show me shipped orders" is answered by the
+  orders tool; naming a status lookup hands back a list of statuses to someone
+  who asked for orders.
 - Choose exactly one tool, or null if no tool genuinely fits. Declining is a
   valid answer; a wrong tool call is worse than none.
 - Fill arguments only from what the prompt actually says. Never invent an ID, a
   date, or a quantity the user did not give you.
 - If a required argument is missing from the prompt, still name the tool but
   leave that argument out, and say so in your rationale.
+- Give an argument the words the user actually used. Where a value has to become
+  something else before it reaches the API, the tool does that itself -- pass
+  "shipped", not an id you inferred. Match the TYPE the argument declares: a
+  value for an "array of string" goes in a list, even when there is one of them.
 - Your rationale is shown to an audience. One or two sentences on why this tool
   and not the runner-up."""
 
@@ -50,10 +58,19 @@ ROUTING_SCHEMA = {
             "type": ["string", "null"],
             "description": "Chosen tool name, or null when nothing fits.",
         },
+        # A JSON-encoded object, not an object. OpenAI's strict structured
+        # outputs require `additionalProperties: false` on every object, which a
+        # free-form argument bag cannot satisfy -- the arguments differ per tool,
+        # so there is no fixed key set to declare. Shipping it as an object made
+        # the API reject EVERY routing call with a 400, and the except-clause
+        # below quietly demoted the router to the offline path. A string keeps
+        # the envelope strict and confines the one parse to a single field.
         "args": {
-            "type": "object",
-            "description": "Arguments taken from the prompt. Omit anything not stated.",
-            "additionalProperties": True,
+            "type": "string",
+            "description": (
+                "Arguments taken from the prompt, as a JSON object encoded in a "
+                'string, e.g. {"page": 2}. Use {} when the prompt states none.'
+            ),
         },
         "rationale": {"type": "string", "description": "One or two sentences."},
         "candidates": {
@@ -70,9 +87,30 @@ ROUTING_SCHEMA = {
             },
         },
     },
+    # Strict mode requires every property to be listed here, optionality being
+    # expressed by a nullable type rather than by omission.
     "required": ["contractName", "args", "rationale", "candidates"],
     "additionalProperties": False,
 }
+
+
+def _decode_args(raw: Any) -> dict[str, Any]:
+    """Read the argument bag back out of its string.
+
+    Tolerates a plain object too, so a model or a test that returns one still
+    works. A bag that will not parse becomes empty rather than raising: the tool
+    is still the right one, and an argument-less call is a recoverable answer
+    where a crashed run is not.
+    """
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class AgentState(TypedDict, total=False):
@@ -147,7 +185,7 @@ def _route_with_llm(state: AgentState) -> AgentState:
     return {
         **state,
         "contract_name": payload.get("contractName"),
-        "args": payload.get("args") or {},
+        "args": _decode_args(payload.get("args")),
         "rationale": payload.get("rationale", ""),
         "candidates": payload.get("candidates", []),
         "source": "openai",
@@ -184,6 +222,66 @@ def route_node(state: AgentState) -> AgentState:
         return routed
 
 
+_JSON_TYPES: dict[str, type | tuple[type, ...]] = {
+    "string": str,
+    "integer": int,
+    "number": (int, float),
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def _coerce_types(args: dict[str, Any], tool: CatalogTool) -> dict[str, Any]:
+    """Widen a single value into the one-element list its argument declares.
+
+    A router that has correctly resolved one status id and sends 1201821018
+    instead of [1201821018] has made a shape mistake, not a judgement one, and
+    the widening is unambiguous -- there is exactly one list that contains it.
+    Worth doing rather than bouncing through a repair round trip, because the
+    upstream does not error on the wrong shape; it drops the filter and returns
+    everything, which is the failure that started all of this.
+
+    Anything less clear-cut is left alone for the validation below to reject.
+    """
+    coerced = dict(args)
+    for name, value in args.items():
+        spec = tool.arg_spec(name)
+        if spec.get("type") != "array" or isinstance(value, list):
+            continue
+        item_type = _JSON_TYPES.get((spec.get("items") or {}).get("type", ""))
+        if item_type and isinstance(value, item_type) and not isinstance(value, bool):
+            coerced[name] = [value]
+    return coerced
+
+
+def _type_errors(args: dict[str, Any], tool: CatalogTool) -> list[str]:
+    """Reject a value the contract's schema would not accept.
+
+    The engine validates too, but a mistake caught here is one the router can be
+    told about and can fix on the repair pass, instead of a sandbox spawned for
+    a call that cannot succeed.
+    """
+    errors: list[str] = []
+    for name, value in args.items():
+        spec = tool.arg_spec(name)
+        expected = _JSON_TYPES.get(str(spec.get("type", "")))
+        if expected is None:
+            continue
+        # bool is an int in Python; the schema does not agree.
+        if isinstance(value, bool) != (spec.get("type") == "boolean"):
+            errors.append(f"{name} must be {tool.arg_type(name)}")
+            continue
+        if not isinstance(value, expected):
+            errors.append(f"{name} must be {tool.arg_type(name)}")
+            continue
+        if spec.get("type") == "array":
+            item_type = _JSON_TYPES.get((spec.get("items") or {}).get("type", ""))
+            if item_type and not all(isinstance(v, item_type) for v in value):
+                errors.append(f"every item in {name} must be a {(spec['items'])['type']}")
+    return errors
+
+
 def validate_args_node(state: AgentState) -> AgentState:
     """Check the chosen args against the contract's schema and its regex rules.
 
@@ -200,12 +298,14 @@ def validate_args_node(state: AgentState) -> AgentState:
             "validation_errors": [f"{state['contract_name']} is not in the registry"],
         }
 
-    args = state.get("args") or {}
+    args = _coerce_types(state.get("args") or {}, tool)
     errors: list[str] = []
 
     unknown = set(args) - set(tool.arg_names())
     if unknown:
         errors.append(f"unknown argument(s): {', '.join(sorted(unknown))}")
+
+    errors.extend(_type_errors(args, tool))
 
     missing = [a for a in tool.required_args if a not in args]
 
@@ -214,7 +314,9 @@ def validate_args_node(state: AgentState) -> AgentState:
         if field in args and pattern and not re.match(pattern, str(args[field])):
             errors.append(rule.get("message") or f"{field} does not match {pattern}")
 
-    return {**state, "validation_errors": errors, "missing_args": missing}
+    # `args` goes back with the coercion applied -- the BFF calls with what was
+    # validated here, not with the shape the router happened to emit.
+    return {**state, "args": args, "validation_errors": errors, "missing_args": missing}
 
 
 def _after_validate(state: AgentState) -> str:
