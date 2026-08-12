@@ -17,11 +17,12 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from cm_agent import wire as ev
 from cm_agent.bff.mcp_client import McpBridge, Run
-from cm_agent.config import BFF_HOST, BFF_PORT, FRONTEND_ORIGINS
+from cm_agent.config import BFF_HOST, BFF_PORT, FRONTEND_ORIGINS, REPO_ROOT
 from cm_agent.graph import route_prompt, use_llm
 from cm_agent.mcp_catalog import parse_tools
 
@@ -237,6 +238,22 @@ async def cache_clear() -> Any:
 @app.get("/healthz")
 async def healthz() -> dict[str, Any]:
     return {"ok": bridge.connected, "mcpConnected": bridge.connected, "usingLlm": use_llm()}
+
+
+# --- the compiled UI -------------------------------------------------------
+# In development Vite serves the SPA on :5173 and proxies /api and /healthz here,
+# so this mount is not involved. A deployed image has no Vite: the build compiles
+# the SPA into frontend/dist and this serves it from the SAME origin as the API,
+# which is what lets the SSE stream work without a CORS negotiation.
+#
+# Mounted last because a mount at "/" claims every path the routes above did not
+# already take -- declared earlier, it would swallow /api and /healthz.
+#
+# Absent whenever nobody has run `npm run build`, which is the normal state of a
+# dev checkout. The API then serves alone rather than failing at import time.
+_UI_DIR = REPO_ROOT / "frontend" / "dist"
+if _UI_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=_UI_DIR, html=True), name="ui")
 
 
 def main() -> None:

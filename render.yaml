@@ -1,0 +1,39 @@
+# Render blueprint for the agent: the BFF and the compiled UI, one service.
+#
+# This service knows the engine only as a URL, which is the whole coupling between
+# the two repositories. It holds no contracts, no registry and no store credential
+# -- so it never decides which tools exist. It shows whatever the engine serves,
+# and the engine serves what was merged.
+#
+# Connect this file once (Render -> New -> Blueprint), then set CM_MCP_URL to the
+# engine service's URL with /mcp on the end.
+
+services:
+  - type: web
+    name: cm-mcp-agent
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    branch: main
+    autoDeploy: true
+
+    # Returns 200 whether or not the MCP connection is up, reporting it in the
+    # body -- so a sleeping engine shows as degraded in the UI instead of taking
+    # this service down with it.
+    healthCheckPath: /healthz
+
+    envVars:
+      # The deployed engine's MCP endpoint, e.g.
+      #   https://cm-mcp-engine.onrender.com/mcp
+      # Not declared here: the host is assigned when the engine service is first
+      # created, and a wrong value baked into git is worse than a prompt.
+      - key: CM_MCP_URL
+        sync: false
+
+      # Optional. With it, routing uses an OpenAI model; without it the
+      # deterministic offline router runs and the UI looks identical.
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Not set: CM_FRONTEND_ORIGINS. The UI is served from this same service, so
+      # every /api call is same-origin and the CORS allowlist has nothing to do.

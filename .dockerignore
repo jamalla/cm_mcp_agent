@@ -1,0 +1,18 @@
+# node_modules and dist are rebuilt by the image's first stage. Copying the local
+# ones in would be slow and, worse, could shadow a fresh build with a stale one.
+frontend/node_modules/
+frontend/dist/
+
+.venv/
+__pycache__/
+*.pyc
+.cache/
+.pytest_cache/
+.ruff_cache/
+.git/
+.github/
+tests/
+scripts/
+
+# The engine URL and the router key arrive from the platform's environment.
+.env
