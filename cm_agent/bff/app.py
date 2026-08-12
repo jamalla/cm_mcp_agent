@@ -218,6 +218,15 @@ async def registry() -> Any:
 
 @app.post("/api/registry/refresh")
 async def registry_refresh() -> Any:
+    """Pick up contracts approved since this process started.
+
+    Reopening the session comes first and matters more than the call after it:
+    `refresh_registry` re-reads contracts inside the ENGINE, but the tool surface
+    this service can see was settled when its session was opened. After a registry
+    merge redeploys the engine, refreshing over the old session asks a process that
+    no longer serves this store. Reconnect, then refresh.
+    """
+    await bridge.reconnect()
     return await bridge.refresh_registry()
 
 

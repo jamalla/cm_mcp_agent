@@ -57,6 +57,48 @@ class McpBridge:
             await self._client.__aexit__(None, None, None)
             self._client = None
 
+    async def reconnect(self) -> None:
+        """Throw the session away and open a new one.
+
+        The engine builds its MCP tool surface once, at import, so a contract
+        merged into it only exists on a process that started afterwards. When the
+        engine is redeployed this service keeps holding the session it opened
+        against the previous process -- and a tool a human approved an hour ago
+        stays invisible here until someone redeploys THIS service too, which
+        looks like the merge not having worked.
+        """
+        try:
+            await self.close()
+        except Exception:  # noqa: BLE001 - the old session is being discarded regardless
+            self._client = None
+        await self.connect()
+
+    async def _ensure_connected(self) -> None:
+        """Reopen a session that went away, before using it.
+
+        Every call below goes through here: the engine restarting is normal
+        operation -- every registry merge redeploys it -- not an error state this
+        service should sit in until a human notices.
+
+        `is_connected()` is not enough to detect it. It describes this end of the
+        pipe, so it keeps answering True after the process at the other end is
+        gone, and the first hint is a call failing with "Session terminated". So
+        the session is PROBED rather than trusted.
+
+        A probe, rather than catching that failure and retrying: a retry would
+        have to re-send a call that may already have reached the old process, and
+        `call_tool` runs writes. Paying one round trip to keep every tool call
+        at-most-once is the right side of that trade.
+        """
+        if not self.connected:
+            await self.reconnect()
+            return
+
+        try:
+            await self._client.ping()
+        except Exception:  # noqa: BLE001 - any failed probe means: get a new session
+            await self.reconnect()
+
     @property
     def connected(self) -> bool:
         return self._client is not None and self._client.is_connected()
@@ -125,26 +167,32 @@ class McpBridge:
         payload = {**args, "run_id": run_id}
         if approval_token:
             payload["approval_token"] = approval_token
+        await self._ensure_connected()
         result = await self.client.call_tool(name, payload)
         return result.data
 
     async def list_contracts(self) -> Any:
+        await self._ensure_connected()
         result = await self.client.call_tool("list_contracts", {})
         return result.data
 
     async def refresh_registry(self) -> Any:
+        await self._ensure_connected()
         result = await self.client.call_tool("refresh_registry", {})
         return result.data
 
     async def clear_caches(self) -> Any:
+        await self._ensure_connected()
         result = await self.client.call_tool("clear_caches", {})
         return result.data
 
     async def read_contract(self, name: str) -> Any:
         import json
 
+        await self._ensure_connected()
         contents = await self.client.read_resource(f"contract://{name}")
         return json.loads(contents[0].text)
 
     async def list_tools(self):
+        await self._ensure_connected()
         return await self.client.list_tools()
