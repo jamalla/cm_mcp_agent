@@ -75,7 +75,7 @@ export default function App() {
         {
           id: nextId(),
           role: 'assistant',
-          proposal: { action: d.action, runId: event.run_id },
+          proposal: { action: d.action, args: d.args, runId: event.run_id },
         },
       ])
     }

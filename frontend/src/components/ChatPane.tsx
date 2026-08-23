@@ -10,8 +10,43 @@ export interface ChatMessage {
   durationMs?: number
   cached?: boolean
   error?: string
-  proposal?: { action: string; runId: string }
+  proposal?: { action: string; args?: Record<string, any>; runId: string }
   resolved?: 'approved' | 'rejected'
+}
+
+/** Render one argument value the way an approver needs to read it.
+ *
+ * Booleans matter here: `freeShipping: false` is a decision the merchant is
+ * approving, and React renders a raw `false` as nothing at all.
+ */
+function formatArg(value: any): string {
+  if (value === null || value === undefined) return '—'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '—'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+/** The values the request will actually carry.
+ *
+ * The action line above shows only the method and the URL, which for a write
+ * that carries everything in its body -- POST /coupons -- is identical for
+ * every call. These are what differ, so without them "Approve" is a decision
+ * taken blind.
+ */
+function ProposalArgs({ args }: { args?: Record<string, any> }) {
+  const entries = Object.entries(args ?? {})
+  if (entries.length === 0) return null
+
+  return (
+    <dl className="proposal-args">
+      {entries.map(([name, value]) => (
+        <div className="proposal-arg" key={name}>
+          <dt>{name}</dt>
+          <dd>{formatArg(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
 }
 
 /** Fill a contract's `ui` hint template: "Category {name}" -> "Category Shoes". */
@@ -106,6 +141,7 @@ export function ChatPane({
                   <div className="proposal-card">
                     <p className="proposal-label">Approval required before this runs</p>
                     <p className="proposal-action">{message.proposal.action}</p>
+                    <ProposalArgs args={message.proposal.args} />
                     {message.resolved ? (
                       <p className={`proposal-resolved ${message.resolved}`}>
                         {message.resolved === 'approved' ? 'Approved — applied.' : 'Rejected.'}

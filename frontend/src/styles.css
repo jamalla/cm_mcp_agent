@@ -114,6 +114,10 @@ body {
 .proposal-card { border-left: 3px solid var(--amber); padding-left: 11px; }
 .proposal-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--amber); }
 .proposal-action { font-family: var(--mono); font-size: 12px; color: var(--text); margin: 6px 0 !important; word-break: break-all; }
+.proposal-args { margin: 8px 0 0 !important; display: grid; gap: 3px; }
+.proposal-arg { display: grid; grid-template-columns: minmax(0, 150px) 1fr; gap: 10px; font-size: 12px; }
+.proposal-arg dt { color: var(--muted); font-family: var(--mono); }
+.proposal-arg dd { color: var(--text); font-family: var(--mono); margin: 0; word-break: break-word; }
 .proposal-buttons { display: flex; gap: 8px; margin-top: 8px; }
 .proposal-buttons button { border-radius: 6px; padding: 5px 14px; font-size: 12px; cursor: pointer; border: 1px solid var(--line); }
 .approve { background: #17392a; color: var(--green); border-color: #245c40 !important; }
