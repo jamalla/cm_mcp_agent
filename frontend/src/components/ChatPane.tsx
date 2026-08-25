@@ -90,6 +90,31 @@ function CopyButton({ value }: { value: unknown }) {
   )
 }
 
+/** The line between asking and being answered.
+ *
+ * The trace pane always knew what was happening; the chat did not, and that gap
+ * is the longest silence in the product -- a routing call, a code generation and
+ * an upstream request, with nothing on screen but a disabled input.
+ *
+ * The phrase is keyed so React remounts it on every change, which replays the
+ * fade. That is the animation doing something honest: it moves when the work
+ * moves, and stalls visibly when the work stalls.
+ */
+function Thinking({ activity }: { activity: string | null }) {
+  if (!activity) return null
+
+  return (
+    <div className="message message-assistant thinking-row">
+      <span className="thinking-dots" aria-hidden="true">
+        <i /><i /><i />
+      </span>
+      <span key={activity} className="thinking-text">
+        {activity}
+      </span>
+    </div>
+  )
+}
+
 function ResultCard({ message }: { message: ChatMessage }) {
   const { output = {}, uiHint } = message
 
@@ -113,6 +138,8 @@ interface Props {
   surfaces: Record<string, Surface>
   busy: boolean
   onSend: (prompt: string) => void
+  /** What the engine is doing right now, or null when nothing is running. */
+  activity: string | null
   onApprove: (runId: string, approve: boolean) => void
   onClearCache: () => void
   onNewChat: () => void
@@ -126,6 +153,7 @@ export function ChatPane({
   surfaces,
   busy,
   onSend,
+  activity,
   onApprove,
   onClearCache,
   onNewChat,
@@ -138,7 +166,7 @@ export function ChatPane({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, activity])
 
   // Ctrl/Cmd + K starts over, the way it does in most things with a chat in
   // them. Bound on the window rather than the input so it works while the
@@ -278,6 +306,8 @@ export function ChatPane({
             )}
           </div>
         ))}
+        <Thinking activity={activity} />
+
         <div ref={bottomRef} />
       </div>
 

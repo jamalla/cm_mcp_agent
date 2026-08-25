@@ -65,3 +65,25 @@ export const STAGE_LABELS: Record<string, string> = {
   error: 'Error',
   done: 'Done',
 }
+
+/** What is happening RIGHT NOW, in the present tense.
+ *
+ * Deliberately not STAGE_LABELS. Those name a stage in the trace, for a reader
+ * studying what ran ("Contract selected", "Cache HIT"). These are for someone
+ * waiting, who wants to know the machine is still working and roughly on what.
+ *
+ * Every one of them is driven by a real event. If a stage did not happen the
+ * line never appears -- the same rule the trace follows, because a reassuring
+ * message that is not tied to anything is just a spinner with opinions.
+ */
+export const STAGE_ACTIVITY: Record<string, string> = {
+  prompt_received: 'Reading your question',
+  routing: 'Choosing a tool',
+  contract_selected: 'Reading the contract',
+  surface: 'Laying out the answer',
+  code_generated: 'Writing the code',
+  executing: 'Calling the store',
+  result: 'Shaping the result',
+  cache_hit: 'Found it in the cache',
+  cache_store: 'Saving for next time',
+}
