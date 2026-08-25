@@ -5,7 +5,7 @@ import { RegistryPanel, isApproved, type Registry } from './components/RegistryP
 import { useEventStream } from './useEventStream'
 import { applyMessages } from './a2ui/surface'
 import type { Surface } from './a2ui/types'
-import type { StageEvent } from './types'
+import { STAGE_ACTIVITY, type StageEvent } from './types'
 
 /** A clickable prompt, taken from a contract's own routing hints.
  *
@@ -20,6 +20,33 @@ function suggestionFrom(hint: string): string {
   return (example ? example[1] : hint).replace(/\s+/g, ' ').trim()
 }
 
+/** Ambiguity-free alphabet: no I/O/0/1, so a code read off a screen and typed
+ *  back in survives the trip. */
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+function freshSuffix(): string {
+  return Array.from(
+    { length: 4 },
+    () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)],
+  ).join('')
+}
+
+/** A demo prompt has to work for whoever clicks it.
+ *
+ * A coupon code is unique per store, so the example baked into the contract's
+ * own hint -- SUMMER10 -- works exactly ONCE. Every tester after the first gets
+ * a 422 for a duplicate code and reads it as the platform being broken, which is
+ * the opposite of what a suggestion is for.
+ *
+ * The suffix is generated per session and shown in the chip itself, so what the
+ * button says is exactly what gets sent -- the prompt stays honest rather than
+ * being rewritten on its way out.
+ */
+function withFreshCode(prompt: string, suffix: string): string {
+  if (!/coupon|code/i.test(prompt)) return prompt
+  return prompt.replace(/[A-Z][A-Z0-9]{3,}/, (code) => code + suffix)
+}
+
 let messageCounter = 0
 const nextId = () => `m${++messageCounter}`
 
@@ -29,6 +56,13 @@ export default function App() {
   const [registry, setRegistry] = useState<Registry | null>(null)
   const [registryOpen, setRegistryOpen] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
+  // Regenerated per session and on 'new chat', so a second tester -- or a
+  // second attempt -- still gets a code the store has not seen.
+  const [codeSuffix, setCodeSuffix] = useState(freshSuffix)
+  // The apply half of propose-apply streams on its own EventSource rather
+  // than through the hook, so it needs its own stage to report -- otherwise
+  // approving a write is followed by silence until it lands.
+  const [applyStage, setApplyStage] = useState<string | null>(null)
   const [lastDuration, setLastDuration] = useState<number | undefined>()
   // A2UI surfaces, keyed by surfaceId. Built up as messages arrive: the tree
   // lands when the contract is selected, the data only after the call.
@@ -162,17 +196,23 @@ export default function App() {
         // The apply is a second MCP call with its own run; stream it in.
         const source = new EventSource(`/api/stream/${body.run_id}`)
         const collected: StageEvent[] = []
+        setApplyStage('executing')
         source.onmessage = (message) => {
           const event = JSON.parse(message.data) as StageEvent
           if (event.type === 'stream_end') {
             source.close()
+            setApplyStage(null)
             append(collected)
             return
           }
           collected.push(event)
+          setApplyStage(event.type)
           consume(event)
         }
-        source.onerror = () => source.close()
+        source.onerror = () => {
+          source.close()
+          setApplyStage(null)
+        }
       }
     },
     [append, consume],
@@ -188,6 +228,27 @@ export default function App() {
     undefined,
   )
 
+  /** The line shown to whoever is waiting: what is happening, and on what.
+   *
+   *  Read off the latest real event rather than a timer, so it cannot claim a
+   *  stage that never ran. Once a contract has been chosen its name is carried
+   *  along, because "Calling the store" is far less reassuring than knowing
+   *  WHICH tool is doing the calling.
+   */
+  const activity = (() => {
+    if (!running) {
+      return applyStage ? (STAGE_ACTIVITY[applyStage] ?? 'Applying the change') : null
+    }
+    const chosen = [...events].reverse().find((e) => e.type === 'contract_selected')
+    for (const event of [...events].reverse()) {
+      const phrase = STAGE_ACTIVITY[event.type]
+      if (!phrase) continue
+      const tool = chosen?.data?.contractName
+      return tool && event.type !== 'routing' ? `${phrase} · ${tool}` : phrase
+    }
+    return 'Working'
+  })()
+
   const newChat = useCallback(() => {
     // A run in flight would otherwise keep appending to a conversation the user
     // has already walked away from. The backend finishes on its own; we stop
@@ -198,6 +259,7 @@ export default function App() {
     setSurfaces({})
     setLastDuration(undefined)
     previousDuration.current = undefined
+    setCodeSuffix(freshSuffix())
   }, [stop, clear])
 
   const retry = useCallback(() => {
@@ -255,14 +317,15 @@ export default function App() {
         <ChatPane
           messages={messages}
           surfaces={surfaces}
+          activity={activity}
           onNewChat={newChat}
           onRetry={retry}
           canRetry={Boolean(lastPrompt)}
-          busy={running}
+          busy={running || applyStage !== null}
           onSend={send}
           onApprove={approve}
           onClearCache={clearCaches}
-          suggestions={suggestions}
+          suggestions={suggestions.map((s) => withFreshCode(s, codeSuffix))}
         />
         <PipelinePane
           events={events}
