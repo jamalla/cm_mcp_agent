@@ -73,6 +73,23 @@ body {
 .ghost-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
 .ghost-btn:disabled { opacity: .4; cursor: default; }
 
+/* Chat actions. `new chat` is the one people reach for, so it reads as the
+   primary; `reset caches` sits past a divider because it reaches the engine and
+   changes what the next run costs, rather than just tidying the view. */
+.pane-actions { display: flex; align-items: center; gap: 6px; }
+.primary-ghost { color: var(--text); border-color: var(--accent-dim); }
+.primary-ghost:hover:not(:disabled) { background: var(--accent-dim); }
+.action-divider { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
+
+/* Sits under a result rather than over it: available, never in the way. */
+.copy-btn {
+  margin-top: 7px; background: transparent; color: var(--dim);
+  border: 1px solid transparent; border-radius: 5px;
+  padding: 2px 7px; font-size: 10.5px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: .6px;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--line); }
+
 /* ---------- chat ---------- */
 
 .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
