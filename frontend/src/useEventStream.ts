@@ -59,5 +59,11 @@ export function useEventStream() {
     setEvents((prior) => [...prior, ...extra])
   }, [])
 
-  return { events, running, start, stop, append }
+  /** Drop the collected trace. Starting a new conversation should not leave the
+   *  previous run's stages sitting beside an empty chat. */
+  const clear = useCallback(() => {
+    setEvents([])
+  }, [])
+
+  return { events, running, start, stop, append, clear }
 }

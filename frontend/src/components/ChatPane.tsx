@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { A2uiSurface } from '../a2ui/Render'
 import { isRenderable } from '../a2ui/surface'
 import type { Surface } from '../a2ui/types'
@@ -63,6 +63,33 @@ function interpolate(template: string | undefined, output: Record<string, any>):
   })
 }
 
+/** Copy the answer, with the button itself as the confirmation.
+ *
+ * A result worth reading is usually a result worth pasting somewhere -- into a
+ * ticket, a spreadsheet, a message to whoever asked. `navigator.clipboard` is
+ * unavailable over plain http on some hosts, so failure is silent and the label
+ * simply does not change rather than throwing behind the scenes.
+ */
+function CopyButton({ value }: { value: unknown }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(value, null, 2))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch {
+      /* no clipboard permission -- leave the label alone rather than lie */
+    }
+  }
+
+  return (
+    <button className="copy-btn" onClick={copy} title="Copy this result as JSON">
+      {copied ? 'copied' : 'copy'}
+    </button>
+  )
+}
+
 function ResultCard({ message }: { message: ChatMessage }) {
   const { output = {}, uiHint } = message
 
@@ -88,6 +115,9 @@ interface Props {
   onSend: (prompt: string) => void
   onApprove: (runId: string, approve: boolean) => void
   onClearCache: () => void
+  onNewChat: () => void
+  onRetry: () => void
+  canRetry: boolean
   suggestions: string[]
 }
 
@@ -98,6 +128,9 @@ export function ChatPane({
   onSend,
   onApprove,
   onClearCache,
+  onNewChat,
+  onRetry,
+  canRetry,
   suggestions,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -106,6 +139,21 @@ export function ChatPane({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Ctrl/Cmd + K starts over, the way it does in most things with a chat in
+  // them. Bound on the window rather than the input so it works while the
+  // composer is disabled mid-run, which is exactly when someone wants out.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        onNewChat()
+        inputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onNewChat])
 
   function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -119,15 +167,44 @@ export function ChatPane({
     <section className="pane chat-pane">
       <header className="pane-header">
         <h2>Chat</h2>
-        <button className="ghost-btn" onClick={onClearCache} disabled={busy}>
-          reset caches
-        </button>
+        <div className="pane-actions">
+          <button
+            className="ghost-btn primary-ghost"
+            onClick={onNewChat}
+            disabled={messages.length === 0}
+            title="Clear the conversation and the trace, and start again (Ctrl/Cmd + K)"
+          >
+            new chat
+          </button>
+          <button
+            className="ghost-btn"
+            onClick={onRetry}
+            disabled={busy || !canRetry}
+            title="Send the last question again"
+          >
+            retry
+          </button>
+          {/* Deliberately set apart: this one reaches the engine and changes
+              what the NEXT run costs, which is a different kind of act from
+              tidying the view. */}
+          <span className="action-divider" aria-hidden="true" />
+          <button
+            className="ghost-btn"
+            onClick={onClearCache}
+            disabled={busy}
+            title="Clear the engine's result and code caches, so the next run runs cold"
+          >
+            reset caches
+          </button>
+        </div>
       </header>
 
       <div className="messages">
         {messages.length === 0 && suggestions.length > 0 && (
           <div className="suggestions">
-            <p className="empty">Try one of these:</p>
+            {/* Drawn from the registry's own routing hints, so the offers here
+                follow whatever was last merged rather than a hardcoded list. */}
+            <p className="empty">Ask about the store — or start with one of these:</p>
             {suggestions.map((s) => (
               <button key={s} className="suggestion" onClick={() => onSend(s)} disabled={busy}>
                 {s}
@@ -174,10 +251,20 @@ export function ChatPane({
 
                 {message.surfaceId &&
                   (isRenderable(surfaces[message.surfaceId]) ? (
-                    <A2uiSurface surface={surfaces[message.surfaceId]} />
+                    <>
+                      <A2uiSurface surface={surfaces[message.surfaceId]} />
+                      {surfaces[message.surfaceId].hasData && (
+                        <CopyButton value={surfaces[message.surfaceId].data} />
+                      )}
+                    </>
                   ) : null)}
 
-                {message.output && <ResultCard message={message} />}
+                {message.output && (
+                  <>
+                    <ResultCard message={message} />
+                    <CopyButton value={message.output} />
+                  </>
+                )}
 
                 {message.durationMs !== undefined && (
                   <p className="msg-meta">

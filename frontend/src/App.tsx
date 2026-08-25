@@ -33,7 +33,7 @@ export default function App() {
   // A2UI surfaces, keyed by surfaceId. Built up as messages arrive: the tree
   // lands when the contract is selected, the data only after the call.
   const [surfaces, setSurfaces] = useState<Record<string, Surface>>({})
-  const { events, running, start, append } = useEventStream()
+  const { events, running, start, stop, append, clear } = useEventStream()
   const previousDuration = useRef<number | undefined>()
 
   const loadRegistry = useCallback(async () => {
@@ -178,6 +178,32 @@ export default function App() {
     [append, consume],
   )
 
+  /** The last thing the user actually asked, for retrying it.
+   *
+   *  Derived rather than stored: the transcript already knows, and a second
+   *  copy is a second thing to keep in step with clearing.
+   */
+  const lastPrompt = messages.reduce<string | undefined>(
+    (found, m) => (m.role === 'user' && m.text ? m.text : found),
+    undefined,
+  )
+
+  const newChat = useCallback(() => {
+    // A run in flight would otherwise keep appending to a conversation the user
+    // has already walked away from. The backend finishes on its own; we stop
+    // listening, which is the honest thing for the view to do.
+    stop()
+    clear()
+    setMessages([])
+    setSurfaces({})
+    setLastDuration(undefined)
+    previousDuration.current = undefined
+  }, [stop, clear])
+
+  const retry = useCallback(() => {
+    if (lastPrompt && !running) void send(lastPrompt)
+  }, [lastPrompt, running, send])
+
   const clearCaches = useCallback(async () => {
     await fetch('/api/cache/clear', { method: 'POST' })
     setLastDuration(undefined)
@@ -229,6 +255,9 @@ export default function App() {
         <ChatPane
           messages={messages}
           surfaces={surfaces}
+          onNewChat={newChat}
+          onRetry={retry}
+          canRetry={Boolean(lastPrompt)}
           busy={running}
           onSend={send}
           onApprove={approve}
