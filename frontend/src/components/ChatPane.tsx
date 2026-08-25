@@ -1,4 +1,7 @@
 import { useEffect, useRef } from 'react'
+import { A2uiSurface } from '../a2ui/Render'
+import { isRenderable } from '../a2ui/surface'
+import type { Surface } from '../a2ui/types'
 import type { UiHint } from '../types'
 
 export interface ChatMessage {
@@ -10,6 +13,8 @@ export interface ChatMessage {
   durationMs?: number
   cached?: boolean
   error?: string
+  /** The A2UI surface this message renders, when the contract declared one. */
+  surfaceId?: string
   proposal?: { action: string; args?: Record<string, any>; runId: string }
   resolved?: 'approved' | 'rejected'
 }
@@ -78,6 +83,7 @@ function ResultCard({ message }: { message: ChatMessage }) {
 
 interface Props {
   messages: ChatMessage[]
+  surfaces: Record<string, Surface>
   busy: boolean
   onSend: (prompt: string) => void
   onApprove: (runId: string, approve: boolean) => void
@@ -87,6 +93,7 @@ interface Props {
 
 export function ChatPane({
   messages,
+  surfaces,
   busy,
   onSend,
   onApprove,
@@ -164,6 +171,11 @@ export function ChatPane({
                     )}
                   </div>
                 )}
+
+                {message.surfaceId &&
+                  (isRenderable(surfaces[message.surfaceId]) ? (
+                    <A2uiSurface surface={surfaces[message.surfaceId]} />
+                  ) : null)}
 
                 {message.output && <ResultCard message={message} />}
 
