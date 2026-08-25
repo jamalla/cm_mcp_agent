@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Code } from './Code'
 import { STAGE_LABELS, type StageEvent } from '../types'
+import type { A2uiMessage, Component } from '../a2ui/types'
 
 const STAGE_ICON: Record<string, string> = {
   prompt_received: '›',
@@ -11,6 +12,7 @@ const STAGE_ICON: Record<string, string> = {
   result: '✓',
   cache_store: '⤓',
   cache_hit: '⚡',
+  surface: '▤',
   proposal: '⚠',
   error: '✕',
   done: '●',
@@ -26,6 +28,28 @@ function Expandable({ label, children }: { label: string; children: React.ReactN
       {open && <div className="expand-body">{children}</div>}
     </div>
   )
+}
+
+/** What a component draws, in one line: its binding, or the list it repeats. */
+function describeBinding(c: Component): string {
+  if (c.children && !Array.isArray(c.children)) {
+    return `repeat ${c.children.path} as ${c.children.componentId}`
+  }
+  if (Array.isArray(c.children)) return c.children.join(' + ')
+  if (c.child) return c.child
+
+  const value = c.text ?? c.url
+  if (typeof value === 'string') return `"${value}"`
+  if (value && typeof value === 'object') {
+    if ('path' in value) return value.path
+    if ('call' in value) {
+      const from = Object.values(value.args ?? {})
+        .map((a) => (a && typeof a === 'object' && 'path' in a ? a.path : String(a)))
+        .join(', ')
+      return `${value.call}(${from})`
+    }
+  }
+  return ''
 }
 
 function StageBody({ event }: { event: StageEvent }) {
@@ -113,6 +137,61 @@ function StageBody({ event }: { event: StageEvent }) {
           <Code code={JSON.stringify(d.output, null, 2)} language="json" />
         </Expandable>
       )
+
+    // The interface half of the contract, on the wire. Worth showing beside the
+    // generated code for the same reason that is shown: what the merchant sees
+    // was declared and reviewed, not invented while answering -- and the trace
+    // is where that stops being a claim.
+    case 'surface': {
+      const messages: A2uiMessage[] = d.messages ?? []
+      const kinds = messages.map((m) => Object.keys(m).find((k) => k !== 'version'))
+      const components = messages.flatMap((m) =>
+        'updateComponents' in m ? m.updateComponents.components : [],
+      )
+      const data = messages.find((m) => 'updateDataModel' in m)
+
+      return (
+        <>
+          <p className="stage-text">
+            {components.length > 0
+              ? `Component tree from the contract — ${components.length} components, sent before the call`
+              : 'Result bound into the surface'}
+            {' · '}
+            <code>{kinds.join(', ')}</code>
+          </p>
+
+          {components.length > 0 && (
+            <>
+              <ul className="surface-tree">
+                {components.map((c) => (
+                  <li key={c.id}>
+                    <span className="surface-id">{c.id}</span>
+                    <span className="surface-kind">{c.component}</span>
+                    <span className="surface-bind">{describeBinding(c)}</span>
+                  </li>
+                ))}
+              </ul>
+              <Expandable label="ui contract (A2UI)">
+                <Code code={JSON.stringify(messages, null, 2)} language="json" />
+              </Expandable>
+            </>
+          )}
+
+          {data && (
+            <Expandable label="data model">
+              <Code
+                code={JSON.stringify(
+                  'updateDataModel' in data ? data.updateDataModel.value : {},
+                  null,
+                  2,
+                )}
+                language="json"
+              />
+            </Expandable>
+          )}
+        </>
+      )
+    }
 
     case 'cache_store':
       return (
