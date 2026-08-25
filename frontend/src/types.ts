@@ -8,6 +8,7 @@ export type StageType =
   | 'cache_store'
   | 'cache_hit'
   | 'proposal'
+  | 'surface'
   | 'error'
   | 'done'
   | 'stream_end'
@@ -46,6 +47,7 @@ export const STAGE_ORDER: StageType[] = [
   'cache_hit',
   'cache_store',
   'proposal',
+  'surface',
   'done',
 ]
 
@@ -59,6 +61,7 @@ export const STAGE_LABELS: Record<string, string> = {
   cache_store: 'Cache STORE',
   cache_hit: 'Cache HIT',
   proposal: 'Awaiting approval',
+  surface: 'Rendering surface',
   error: 'Error',
   done: 'Done',
 }

@@ -107,6 +107,43 @@ body {
 .result-secondary { font-size: 12px; color: var(--muted); }
 .result-json { font-family: var(--mono); font-size: 12px; margin: 0; color: var(--muted); white-space: pre-wrap; }
 
+/* ---------- A2UI surfaces ---------- */
+/* The catalog: one rule per component the contract is allowed to name. A
+   surface picks from these; it never ships styling of its own. */
+
+.a2ui-surface { display: flex; flex-direction: column; gap: 6px; }
+/* The tree arrives before the data, so a surface spends a moment with nothing
+   bound. Dimming it says "still filling in" rather than "this is the answer". */
+.a2ui-pending { opacity: 0.45; }
+
+.a2ui-column { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.a2ui-row { display: flex; flex-direction: row; gap: 10px; align-items: baseline; min-width: 0; }
+.a2ui-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.a2ui-list-horizontal { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+/* One row per record: the separator is what makes a repeated template read as
+   a table rather than as a wall of text. */
+.a2ui-list > .a2ui-row { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.a2ui-list > .a2ui-row:last-child { border-bottom: none; }
+
+.a2ui-card {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 11px 13px; background: var(--panel-2); min-width: 0;
+}
+
+.a2ui-text { font-size: 13px; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.a2ui-text-h1 { font-size: 21px; font-weight: 600; }
+.a2ui-text-h2 { font-size: 18px; font-weight: 600; }
+.a2ui-text-h3 { font-size: 16px; font-weight: 600; }
+.a2ui-text-h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.a2ui-text-h5 { font-size: 12px; font-weight: 600; }
+.a2ui-text-caption { font-size: 11px; color: var(--muted); }
+/* A binding that resolved to nothing. Shown as a mark a reader recognises as a
+   gap, never as the word "undefined". */
+.a2ui-empty { color: var(--dim); }
+
+.a2ui-divider { border: none; border-top: 1px solid var(--line); margin: 5px 0; width: 100%; }
+.a2ui-image { max-width: 34px; max-height: 34px; border-radius: 4px; object-fit: contain; }
+
 .msg-meta { margin-top: 9px !important; font-size: 11px; color: var(--dim); display: flex; align-items: center; gap: 8px; }
 .pill { padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); }
 .pill-cache { color: var(--green); border-color: #245c40; background: #10281d; }

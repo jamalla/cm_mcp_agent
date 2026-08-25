@@ -3,6 +3,8 @@ import { ChatPane, type ChatMessage } from './components/ChatPane'
 import { PipelinePane } from './components/PipelinePane'
 import { RegistryPanel, isApproved, type Registry } from './components/RegistryPanel'
 import { useEventStream } from './useEventStream'
+import { applyMessages } from './a2ui/surface'
+import type { Surface } from './a2ui/types'
 import type { StageEvent } from './types'
 
 /** A clickable prompt, taken from a contract's own routing hints.
@@ -28,6 +30,9 @@ export default function App() {
   const [registryOpen, setRegistryOpen] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [lastDuration, setLastDuration] = useState<number | undefined>()
+  // A2UI surfaces, keyed by surfaceId. Built up as messages arrive: the tree
+  // lands when the contract is selected, the data only after the call.
+  const [surfaces, setSurfaces] = useState<Record<string, Surface>>({})
   const { events, running, start, append } = useEventStream()
   const previousDuration = useRef<number | undefined>()
 
@@ -62,11 +67,26 @@ export default function App() {
   const consume = useCallback((event: StageEvent) => {
     const d = event.data ?? {}
 
+    if (event.type === 'surface') {
+      const surfaceId: string = d.surfaceId
+      setSurfaces((prior) => applyMessages(prior, d.messages ?? []))
+      // Placed on the first message for this surface -- the tree -- so the
+      // shape of the answer is on screen while the call is still running.
+      setMessages((prior) =>
+        prior.some((m) => m.surfaceId === surfaceId)
+          ? prior
+          : [...prior, { id: nextId(), role: 'assistant', surfaceId }],
+      )
+    }
+
     if (event.type === 'result') {
-      setMessages((prior) => [
-        ...prior,
-        { id: nextId(), role: 'assistant', output: d.output, uiHint: d.uiHint },
-      ])
+      // A surface renders the result itself; only fall back to the raw payload
+      // when the contract declared none.
+      setMessages((prior) =>
+        prior.some((m) => m.surfaceId === event.run_id)
+          ? prior
+          : [...prior, { id: nextId(), role: 'assistant', output: d.output }],
+      )
     }
 
     if (event.type === 'proposal') {
@@ -208,6 +228,7 @@ export default function App() {
       <main className="panes">
         <ChatPane
           messages={messages}
+          surfaces={surfaces}
           busy={running}
           onSend={send}
           onApprove={approve}

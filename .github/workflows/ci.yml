@@ -40,5 +40,9 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npx tsc -b
+      - name: Tests
+        # The A2UI binding rules, which a build cannot check: a surface that
+        # reads the wrong path still compiles and still renders -- as blank.
+        run: npx vitest run
       - name: Build
         run: npx vite build
