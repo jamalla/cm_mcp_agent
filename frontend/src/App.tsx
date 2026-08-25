@@ -3,8 +3,8 @@ import { ChatPane, type ChatMessage } from './components/ChatPane'
 import { PipelinePane } from './components/PipelinePane'
 import { RegistryPanel, isApproved, type Registry } from './components/RegistryPanel'
 import { useEventStream } from './useEventStream'
-import { applyMessages } from './a2ui/surface'
-import type { Surface } from './a2ui/types'
+import { applyMessages, carriesData } from './a2ui/surface'
+import type { A2uiMessage, Surface } from './a2ui/types'
 import { STAGE_ACTIVITY, type StageEvent } from './types'
 
 /** A clickable prompt, taken from a contract's own routing hints.
@@ -63,6 +63,10 @@ export default function App() {
   // than through the hook, so it needs its own stage to report -- otherwise
   // approving a write is followed by silence until it lands.
   const [applyStage, setApplyStage] = useState<string | null>(null)
+  // Surfaces that actually received their data. A tree is sent before the
+  // call, so every surface starts without one -- this is how we tell a
+  // skeleton that is still filling from one that never will.
+  const filled = useRef<Set<string>>(new Set())
   const [lastDuration, setLastDuration] = useState<number | undefined>()
   // A2UI surfaces, keyed by surfaceId. Built up as messages arrive: the tree
   // lands when the contract is selected, the data only after the call.
@@ -103,7 +107,9 @@ export default function App() {
 
     if (event.type === 'surface') {
       const surfaceId: string = d.surfaceId
-      setSurfaces((prior) => applyMessages(prior, d.messages ?? []))
+      const messages: A2uiMessage[] = d.messages ?? []
+      if (carriesData(messages)) filled.current.add(surfaceId)
+      setSurfaces((prior) => applyMessages(prior, messages))
       // Placed on the first message for this surface -- the tree -- so the
       // shape of the answer is on screen while the call is still running.
       setMessages((prior) =>
@@ -142,6 +148,20 @@ export default function App() {
     }
 
     if (event.type === 'done') {
+      // A run can end without ever sending its data: propose-apply stops at the
+      // proposal, and a failed call has nothing to bind. The tree is already on
+      // screen by then, so without this the merchant is left looking at a card
+      // that will never fill -- a skeleton is a promise, and this one was broken.
+      if (!filled.current.has(event.run_id)) {
+        setMessages((prior) => prior.filter((m) => m.surfaceId !== event.run_id))
+        setSurfaces((prior) => {
+          if (!(event.run_id in prior)) return prior
+          const next = { ...prior }
+          delete next[event.run_id]
+          return next
+        })
+      }
+
       setMessages((prior) => {
         // Attach timing to the last assistant message of this run.
         const index = [...prior].reverse().findIndex((m) => m.role === 'assistant')
@@ -260,6 +280,7 @@ export default function App() {
     setLastDuration(undefined)
     previousDuration.current = undefined
     setCodeSuffix(freshSuffix())
+    filled.current.clear()
   }, [stop, clear])
 
   const retry = useCallback(() => {

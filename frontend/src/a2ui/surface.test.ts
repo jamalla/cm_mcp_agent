@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { applyMessages, isRenderable } from './surface'
+import { applyMessages, carriesData, isRenderable } from './surface'
 import type { A2uiMessage, Surface } from './types'
 
 const V = 'v0.9.1'
@@ -108,5 +108,22 @@ describe('isRenderable', () => {
     expect(isRenderable(undefined)).toBe(false)
     expect(isRenderable({ surfaceId: 'x', components: {}, data: undefined, hasData: false } as Surface))
       .toBe(false)
+  })
+})
+
+describe('carriesData', () => {
+  it('is false for the tree the engine sends before the call', () => {
+    // Every surface starts here. Treating this as "filled" would leave a
+    // skeleton on screen for runs that never produce data.
+    expect(carriesData(TREE)).toBe(false)
+  })
+
+  it('is true once the result lands', () => {
+    expect(carriesData(DATA)).toBe(true)
+    expect(carriesData([...TREE, ...DATA])).toBe(true)
+  })
+
+  it('is false for an empty batch', () => {
+    expect(carriesData([])).toBe(false)
   })
 })

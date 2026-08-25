@@ -68,3 +68,14 @@ export function applyMessages(
 export function isRenderable(surface: Surface | undefined): surface is Surface {
   return Boolean(surface && surface.components.root)
 }
+
+/** Whether this batch carries the data a surface binds to.
+ *
+ * The tree is sent before the upstream call, so every surface begins without
+ * one. A run that ends having never sent this is a surface that will never
+ * fill -- propose-apply stops at the proposal, and a failed call has nothing
+ * to bind -- and the client needs to tell those apart from one still in flight.
+ */
+export function carriesData(messages: A2uiMessage[]): boolean {
+  return messages.some((message) => 'updateDataModel' in message)
+}
